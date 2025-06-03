@@ -1,0 +1,23 @@
+# SROS2 with Post-Quantum Cryptography Requirements
+# These are the Python dependencies needed for SROS2 to work properly
+
+# Core cryptographic library (must support OQS provider)
+cryptography>=3.4.8
+
+# XML processing for ROS 2 security configurations
+lxml>=4.6.0
+
+# Python packaging utilities
+importlib-metadata>=4.0.0
+setuptools>=65.0.0
+wheel>=0.37.0
+
+# Command-line completion support for ROS 2 CLI
+argcomplete>=1.12.0
+
+# ROS 2 build system
+colcon-common-extensions>=0.3.0
+
+# Additional utilities that might be needed
+PyYAML>=5.4.0
+defusedxml>=0.7.0

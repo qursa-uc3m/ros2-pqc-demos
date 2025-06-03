@@ -1,0 +1,62 @@
+# Dockerfile.dds-pqc - DDS Security with PQSec-DDS
+# Builds on base image and adds: CycloneDDS + PQSec-DDS plugin
+
+FROM ros2-pqc-demos:base
+
+# Build arguments for version control
+ARG CYCLONEDDS_VERSION=0.10.5
+ARG PQSEC_DDS_BRANCH=main
+ARG KEM_ALGORITHM=mlkem768
+ARG DEBUG_LEVEL=INFO
+ARG BUILD_TYPE=Debug
+
+# Environment variables that can be overridden at runtime
+ENV CYCLONEDDS_VERSION=${CYCLONEDDS_VERSION}
+ENV PQSEC_DDS_BRANCH=${PQSEC_DDS_BRANCH}
+ENV KEM_ALGORITHM=${KEM_ALGORITHM}
+ENV DEBUG_LEVEL=${DEBUG_LEVEL}
+ENV BUILD_TYPE=${BUILD_TYPE}
+
+# Copy configuration files and demos
+COPY config/ /workspace/config/
+COPY demos/ /workspace/demos/
+
+# Build CycloneDDS (DDS-specific middleware)
+RUN /workspace/scripts/build/build_cyclonedds.sh \
+    -p /opt/cyclonedds \
+    -v ${CYCLONEDDS_VERSION} \
+    -t ${BUILD_TYPE} \
+    -j $(nproc)
+
+# Clone and build PQSec-DDS plugin
+RUN git clone \
+    --branch ${PQSEC_DDS_BRANCH} \
+    --depth 1 \
+    --single-branch \
+    https://github.com/qursa-uc3m/pqsec-dds.git /workspace/pqsec-dds
+
+# Build the PQSec-DDS plugin with parameterized options
+RUN cd /workspace/pqsec-dds && \
+    /workspace/scripts/build/build_plugin.sh \
+    -c /opt/cyclonedds \
+    -l /opt/oqs_openssl3/.local \
+    -o /opt/oqs_openssl3 \
+    -t ${BUILD_TYPE} \
+    --kem ${KEM_ALGORITHM} \
+    --debug-level ${DEBUG_LEVEL} \
+    -j $(nproc) && \
+    rm -rf /workspace/pqsec-dds/.git
+
+# Create convenient symlinks for easy access to commonly used scripts
+RUN ln -sf /workspace/scripts/setup/setup_dds_env.sh /workspace/setup_dds_env && \
+    ln -sf /workspace/scripts/dds/run_talker.sh /workspace/run_talker && \
+    ln -sf /workspace/scripts/dds/run_listener.sh /workspace/run_listener && \
+    ln -sf /workspace/scripts/dds/run_dds_test.sh /workspace/run_dds_test && \
+    ln -sf /workspace/scripts/dds/setup_network.sh /workspace/setup_network && \
+    ln -sf /workspace/scripts/dds/verify_dds_setup.sh /workspace/verify_dds_setup
+
+# Set default working directory
+WORKDIR /workspace
+
+# Default command - run verification and show available options
+CMD ["/bin/bash", "-c", "/workspace/verify_dds_setup && echo '' && echo 'Container ready! Available test options:' && echo '  Basic shell test:     /workspace/run_dds_test' && echo '  Advanced Python test: python3 /workspace/demos/dds-security/basic-talker-listener/run_test.py' && echo '  Interactive mode:     /bin/bash' && echo '' && /bin/bash"]

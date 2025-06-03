@@ -1,0 +1,10 @@
+FROM ros2-pqc-demos:base
+
+# Install Zenoh with PQC support
+# Install rmw_zenoh
+# Configure Zenoh router and client
+
+COPY demos/zenoh-*/ /demos/
+COPY config/zenoh/ /config/
+
+CMD ["python3", "/demos/mtls-communication/run_test.py"]

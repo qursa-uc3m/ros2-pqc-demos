@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CycloneDDS
+    xmlns="https://cdds.io/config"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd"
+>
+    <Domain id="any">
+        <!-- Network configuration for multi-container communication -->
+        <General>
+            <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
+            <AllowMulticast>true</AllowMulticast>
+            <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+            <EnableMulticastLoopback>true</EnableMulticastLoopback>
+        </General>
+        
+        <!-- Discovery configuration for container networking -->
+        <Discovery>
+            <ParticipantIndex>auto</ParticipantIndex>
+            <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+            <SPDPMulticastAddress>239.255.0.1</SPDPMulticastAddress>
+            <SPDPInterval>1.0s</SPDPInterval>
+            <DefaultMulticastAddress>239.255.0.1</DefaultMulticastAddress>
+        </Discovery>
+        
+        <!-- Enhanced tracing for debugging PQC communication -->
+        <Tracing>
+            <Verbosity>config</Verbosity>
+            <OutputFile>stdout</OutputFile>
+        </Tracing>
+        
+        <!-- Post-Quantum Security Configuration -->
+        <Security>
+            <Authentication>
+                <!-- PQSec-DDS plugin with ML-DSA44 + ML-KEM-768 -->
+                <Library initFunction="init_authentication" finalizeFunction="finalize_authentication" path="dds_pqsec"/>
+                <IdentityCA>file:/workspace/certs/keystore/public/identity_ca.cert.pem</IdentityCA>
+                <IdentityCertificate>file:/workspace/certs/keystore/enclaves/talker_listener/talker/cert.pem</IdentityCertificate>
+                <PrivateKey>file:/workspace/certs/keystore/enclaves/talker_listener/talker/key.pem</PrivateKey>
+            </Authentication>
+            
+            <!-- Use built-in cryptographic plugin (or custom PQC crypto plugin) -->
+            <Cryptographic>
+                <Library initFunction="init_crypto" finalizeFunction="finalize_crypto" path="dds_security_crypto"/>
+            </Cryptographic>
+            
+            <!-- Use built-in access control plugin (or custom plugin) -->
+            <AccessControl>
+                <Library initFunction="init_access_control" finalizeFunction="finalize_access_control" path="dds_security_ac"/>
+                <!-- Permissions will be set by SROS2 -->
+                <PermissionsCA>file:/workspace/certs/keystore/public/permissions_ca.cert.pem</PermissionsCA>
+                <Governance>file:/workspace/certs/keystore/governance.p7s</Governance>
+                <Permissions>file:/workspace/certs/keystore/enclaves/talker_listener/talker/permissions.p7s</Permissions>
+            </AccessControl>
+        </Security>
+    </Domain>
+</CycloneDDS>

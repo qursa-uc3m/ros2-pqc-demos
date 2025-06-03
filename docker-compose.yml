@@ -1,0 +1,87 @@
+services:
+  # Base image
+  base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.base
+    image: ros2-pqc-demos:base
+
+  # Certificate generator
+  cert-generator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dds-pqc
+      args:
+        CYCLONEDDS_VERSION: "0.10.5"
+        PQSEC_DDS_BRANCH: "main"
+        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
+        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
+        BUILD_TYPE: "Debug"
+    image: ros2-pqc-demos:dds-pqc
+    container_name: cert-generator
+    networks:
+      - pqc-network
+    volumes:
+      - shared-certs:/workspace/certs
+    depends_on:
+      - base
+
+  # DDS Talker
+  dds-talker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dds-pqc
+      args:
+        CYCLONEDDS_VERSION: "0.10.5"
+        PQSEC_DDS_BRANCH: "main"
+        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
+        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
+        BUILD_TYPE: "Debug"
+    image: ros2-pqc-demos:dds-pqc
+    container_name: dds-talker
+    networks:
+      - pqc-network
+    volumes:
+      - shared-certs:/workspace/certs
+    environment:
+      - NODE_ROLE=talker
+      - KEM_ALGORITHM=${KEM_ALGORITHM:-mlkem768}
+      - DEBUG_LEVEL=${DEBUG_LEVEL:-INFO}
+    depends_on:
+      - base
+    command: sleep infinity
+
+  # DDS Listener  
+  dds-listener:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dds-pqc
+      args:
+        CYCLONEDDS_VERSION: "0.10.5"
+        PQSEC_DDS_BRANCH: "main"
+        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
+        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
+        BUILD_TYPE: "Debug"
+    image: ros2-pqc-demos:dds-pqc
+    container_name: dds-listener
+    networks:
+      - pqc-network
+    volumes:
+      - shared-certs:/workspace/certs
+    environment:
+      - NODE_ROLE=listener
+      - KEM_ALGORITHM=${KEM_ALGORITHM:-mlkem768}
+      - DEBUG_LEVEL=${DEBUG_LEVEL:-INFO}
+    depends_on:
+      - base
+    command: sleep infinity
+
+networks:
+  pqc-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  shared-certs:
