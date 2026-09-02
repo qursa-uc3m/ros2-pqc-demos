@@ -1,87 +1,97 @@
+name: ros2-pqc-demos
+
+x-common: &common
+  working_dir: /workspace
+  volumes:
+    - shared-certs:/workspace/certs
+  networks:
+    - pqc-network
+  init: true
+
 services:
-  # Base image
   base:
     build:
       context: .
       dockerfile: docker/Dockerfile.base
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-lyrical}
     image: ros2-pqc-demos:base
 
-  # Certificate generator
-  cert-generator:
+  dds-pqc:
+    <<: *common
     build:
       context: .
       dockerfile: docker/Dockerfile.dds-pqc
       args:
-        CYCLONEDDS_VERSION: "0.10.5"
-        PQSEC_DDS_BRANCH: "main"
-        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
-        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
-        BUILD_TYPE: "Debug"
+        KEM_ALGORITHM: ${KEM_ALGORITHM:-mlkem768}
+        PQSEC_DDS_COMMIT: ${PQSEC_DDS_COMMIT:-abf753f87f35fda09b29549eff17aba655ab06b2}
     image: ros2-pqc-demos:dds-pqc
-    container_name: cert-generator
-    networks:
-      - pqc-network
-    volumes:
-      - shared-certs:/workspace/certs
-    depends_on:
-      - base
-
-  # DDS Talker
-  dds-talker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.dds-pqc
-      args:
-        CYCLONEDDS_VERSION: "0.10.5"
-        PQSEC_DDS_BRANCH: "main"
-        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
-        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
-        BUILD_TYPE: "Debug"
-    image: ros2-pqc-demos:dds-pqc
-    container_name: dds-talker
-    networks:
-      - pqc-network
-    volumes:
-      - shared-certs:/workspace/certs
-    environment:
-      - NODE_ROLE=talker
-      - KEM_ALGORITHM=${KEM_ALGORITHM:-mlkem768}
-      - DEBUG_LEVEL=${DEBUG_LEVEL:-INFO}
-    depends_on:
-      - base
     command: sleep infinity
 
-  # DDS Listener  
-  dds-listener:
+  zenoh-pqc:
+    <<: *common
     build:
       context: .
-      dockerfile: docker/Dockerfile.dds-pqc
-      args:
-        CYCLONEDDS_VERSION: "0.10.5"
-        PQSEC_DDS_BRANCH: "main"
-        KEM_ALGORITHM: "${KEM_ALGORITHM:-mlkem768}"
-        DEBUG_LEVEL: "${DEBUG_LEVEL:-INFO}"
-        BUILD_TYPE: "Debug"
-    image: ros2-pqc-demos:dds-pqc
-    container_name: dds-listener
-    networks:
-      - pqc-network
-    volumes:
-      - shared-certs:/workspace/certs
+      dockerfile: docker/Dockerfile.zenoh-pqc
+    image: ros2-pqc-demos:zenoh-pqc
+    command: sleep infinity
+
+  artifacts:
+    <<: *common
+    image: ros2-pqc-demos:base
     environment:
-      - NODE_ROLE=listener
-      - KEM_ALGORITHM=${KEM_ALGORITHM:-mlkem768}
-      - DEBUG_LEVEL=${DEBUG_LEVEL:-INFO}
-    depends_on:
-      - base
+      IDENTITY_ALGORITHM: ${IDENTITY_ALGORITHM:-ML-DSA-44}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command: /workspace/scripts/certificates/generate_artifacts.sh
+
+  dds-talker:
+    <<: *common
+    image: ros2-pqc-demos:dds-pqc
+    environment:
+      NODE_ROLE: talker
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command: sleep infinity
+
+  dds-listener:
+    <<: *common
+    image: ros2-pqc-demos:dds-pqc
+    environment:
+      NODE_ROLE: listener
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command: sleep infinity
+
+  zenoh-router:
+    <<: *common
+    image: ros2-pqc-demos:zenoh-pqc
+    hostname: zenoh-router
+    environment:
+      NODE_ROLE: router
+      RUST_LOG: ${RUST_LOG:-info}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command:
+      - bash
+      - -lc
+      - source /workspace/scripts/setup/setup_zenoh_env.sh && exec ros2 run rmw_zenoh_cpp rmw_zenohd
+
+  zenoh-talker:
+    <<: *common
+    image: ros2-pqc-demos:zenoh-pqc
+    environment:
+      NODE_ROLE: talker
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command: sleep infinity
+
+  zenoh-listener:
+    <<: *common
+    image: ros2-pqc-demos:zenoh-pqc
+    environment:
+      NODE_ROLE: listener
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
     command: sleep infinity
 
 networks:
   pqc-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
 volumes:
   shared-certs:

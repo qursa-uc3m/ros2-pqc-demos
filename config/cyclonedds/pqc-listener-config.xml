@@ -1,56 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<CycloneDDS
-    xmlns="https://cdds.io/config"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd"
->
-    <Domain id="any">
-        <!-- Network configuration for multi-container communication -->
-        <General>
-            <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
-            <AllowMulticast>true</AllowMulticast>
-            <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
-            <EnableMulticastLoopback>true</EnableMulticastLoopback>
-        </General>
-        
-        <!-- Discovery configuration for container networking -->
-        <Discovery>
-            <ParticipantIndex>auto</ParticipantIndex>
-            <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
-            <SPDPMulticastAddress>239.255.0.1</SPDPMulticastAddress>
-            <SPDPInterval>1.0s</SPDPInterval>
-            <DefaultMulticastAddress>239.255.0.1</DefaultMulticastAddress>
-        </Discovery>
-        
-        <Tracing>
-            <Verbosity>config</Verbosity>
-            <OutputFile>stdout</OutputFile>
-        </Tracing>
-        
-        <!-- Post-Quantum Security Configuration -->
-        <Security>
-            <Authentication>
-                <!-- PQSec-DDS plugin with ML-DSA44 + ML-KEM-768 -->
-                <Library initFunction="init_authentication" finalizeFunction="finalize_authentication" path="dds_pqsec"/>
-                
-                <!-- ML-DSA44 (Level 2 security) certificates for LISTENER -->
-                <IdentityCA>file:/workspace/certs/keystore/public/identity_ca.cert.pem</IdentityCA>
-                <IdentityCertificate>file:/workspace/certs/keystore/enclaves/talker_listener/listener/cert.pem</IdentityCertificate>
-                <PrivateKey>file:/workspace/certs/keystore/enclaves/talker_listener/listener/key.pem</PrivateKey>
-            </Authentication>
-            
-            <!-- Use built-in cryptographic plugin -->
-            <Cryptographic>
-                <Library initFunction="init_crypto" finalizeFunction="finalize_crypto" path="dds_security_crypto"/>
-            </Cryptographic>
-            
-            <!-- Use built-in access control plugin -->
-            <AccessControl>
-                <Library initFunction="init_access_control" finalizeFunction="finalize_access_control" path="dds_security_ac"/>
-                <PermissionsCA>file:/workspace/certs/keystore/public/permissions_ca.cert.pem</PermissionsCA>
-                <Governance>file:/workspace/certs/keystore/governance.p7s</Governance>
-                <Permissions>file:/workspace/certs/keystore/enclaves/talker_listener/listener/permissions.p7s</Permissions>
-            </AccessControl>
-        </Security>
-    </Domain>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+      <OutputFile>stdout</OutputFile>
+    </Tracing>
+    <Security>
+      <Authentication>
+        <Library initFunction="init_authentication"
+          finalizeFunction="finalize_authentication" path="dds_pqsec"/>
+        <IdentityCA>file:/workspace/certs/keystore/public/identity_ca.cert.pem</IdentityCA>
+        <IdentityCertificate>file:/workspace/certs/keystore/enclaves/talker_listener/listener/cert.pem</IdentityCertificate>
+        <PrivateKey>file:/workspace/certs/keystore/enclaves/talker_listener/listener/key.pem</PrivateKey>
+      </Authentication>
+      <Cryptographic>
+        <Library initFunction="init_crypto"
+          finalizeFunction="finalize_crypto" path="dds_security_crypto"/>
+      </Cryptographic>
+      <AccessControl>
+        <Library initFunction="init_access_control"
+          finalizeFunction="finalize_access_control" path="dds_security_ac"/>
+        <PermissionsCA>file:/workspace/certs/keystore/public/permissions_ca.cert.pem</PermissionsCA>
+        <Governance>file:/workspace/certs/keystore/enclaves/governance.p7s</Governance>
+        <Permissions>file:/workspace/certs/keystore/enclaves/talker_listener/listener/permissions.p7s</Permissions>
+      </AccessControl>
+    </Security>
+  </Domain>
 </CycloneDDS>

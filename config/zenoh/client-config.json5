@@ -1,0 +1,11 @@
+{
+  mode: "client",
+  connect: {
+    endpoints: ["tcp/zenoh-router:7447"],
+    exit_on_failure: true,
+  },
+  scouting: {
+    multicast: { enabled: false },
+    gossip: { enabled: false },
+  },
+}

@@ -1,0 +1,21 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 6ae78915..8f8ddb4e 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -145,8 +145,10 @@ rsa = "0.9.9"
+ rustc_version = "0.4.1"
+ rustls = { version = "0.23.31", default-features = false, features = [
++  "aws_lc_rs",
+   "logging",
+-  "ring",
++  "prefer-post-quantum",
+   "tls12",
+ ] }
+@@ -185,7 +187,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+ # tokio-vsock = see: io/zenoh-links/zenoh-link-vsock/Cargo.toml (workspaces does not support platform dependent dependencies)
+ either = "1.15.0"
+ prost = "0.14.1"
+-tls-listener = { version = "0.11.0", features = ["rustls-ring"] }
++tls-listener = { version = "0.11.0", features = ["rustls-aws-lc"] }
+ typenum = "1.18.0"
+ uhlc = { version = "0.8.0", default-features = false } # Default features are disabled due to usage in no_std crates
