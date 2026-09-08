@@ -1,5 +1,5 @@
 .git
-sros2/.git
+sros2
 **/__pycache__
 **/.pytest_cache
 certs

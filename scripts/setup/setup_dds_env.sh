@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /workspace/scripts/setup/setup_base_env.sh
+source /workspace/scripts/setup/setup_sros2_env.sh
 
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export LD_LIBRARY_PATH="/opt/pqsec-dds/adapters/cyclonedds/build:${LD_LIBRARY_PATH:-}"

@@ -2,6 +2,7 @@ ARG ROS_DISTRO=lyrical
 FROM ros:${ROS_DISTRO}-ros-base
 
 ARG ROS_DISTRO
+ARG SROS2_COMMIT=51cedf6a597ddec50361df5c514986abd24480f4
 ENV DEBIAN_FRONTEND=noninteractive \
     ROS_DISTRO=${ROS_DISTRO} \
     SROS2_OVERLAY=/opt/sros2-overlay
@@ -29,21 +30,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
         ros-${ROS_DISTRO}-rmw-zenoh-cpp \
         ros-${ROS_DISTRO}-sros2 \
+        ros-${ROS_DISTRO}-zenoh-security-tools \
         rustc \
         cargo \
     && rm -rf /var/lib/apt/lists/*
 
-# Build this checkout of the rebased SROS2 fork as an overlay. OpenSSL 3.5 is
+# Build the reviewed SROS2 delta on a pinned upstream revision. OpenSSL 3.5 is
 # supplied by Ubuntu 26.04 in the Lyrical image; no oqsprovider is required.
-COPY sros2 /opt/sros2-src
-RUN source "/opt/ros/${ROS_DISTRO}/setup.bash" \
+COPY patches/sros2-native-mldsa.patch /opt/patches/sros2-native-mldsa.patch
+RUN git clone https://github.com/ros2/sros2.git /opt/sros2-src \
+    && git -C /opt/sros2-src checkout --detach "${SROS2_COMMIT}" \
+    && git -C /opt/sros2-src apply --check /opt/patches/sros2-native-mldsa.patch \
+    && git -C /opt/sros2-src apply /opt/patches/sros2-native-mldsa.patch \
+    && source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && cd /opt/sros2-src \
     && colcon build \
         --install-base "${SROS2_OVERLAY}/install" \
         --build-base "${SROS2_OVERLAY}/build" \
         --packages-select sros2 sros2_cmake \
         --cmake-args -DCMAKE_BUILD_TYPE=Release \
-    && openssl list -signature-algorithms | grep -q ML-DSA-44
+    && openssl list -signature-algorithms | grep -q ML-DSA-44 \
+    && source "${SROS2_OVERLAY}/install/setup.bash" \
+    && smoke_dir=$(mktemp -d) \
+    && ros2 security create_keystore "${smoke_dir}/keystore" \
+        --identity-algorithm ML-DSA-44 \
+    && ros2 security create_enclave "${smoke_dir}/keystore" /smoke/talker \
+    && openssl verify \
+        -CAfile "${smoke_dir}/keystore/public/identity_ca.cert.pem" \
+        "${smoke_dir}/keystore/enclaves/smoke/talker/cert.pem" \
+    && rm -rf "${smoke_dir}"
 
 WORKDIR /workspace
 COPY config /workspace/config

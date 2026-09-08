@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 ARG ZENOH_COMMIT=2687c51352121f006e3a603ce07925a8ad0b295c
 ARG ZENOHC_COMMIT=05bd370343b5161ca9269649b9a914c9c2dc4170
 ARG ZENOHCXX_COMMIT=481b71bf974f684ea75afb4243b0313646d545f9
-ARG RMW_ZENOH_REF=lyrical
+ARG RMW_ZENOH_COMMIT=0ea90273de3570ceb806c80c2fd7b42d4de72940
 
 ENV ZENOH_PQC_PREFIX=/opt/zenoh-pqc \
     RMW_ZENOH_OVERLAY=/opt/rmw-zenoh-overlay \
@@ -17,7 +17,7 @@ RUN /opt/build_zenoh_pqc.sh \
         "${ZENOH_COMMIT}" \
         "${ZENOHC_COMMIT}" \
         "${ZENOHCXX_COMMIT}" \
-        "${RMW_ZENOH_REF}" \
+        "${RMW_ZENOH_COMMIT}" \
         "${ZENOH_PQC_PREFIX}" \
         "${RMW_ZENOH_OVERLAY}" \
     && rm -rf /opt/src /root/.cargo/git /root/.cargo/registry

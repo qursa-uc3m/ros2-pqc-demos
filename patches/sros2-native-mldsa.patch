@@ -1,0 +1,391 @@
+diff --git a/README.md b/README.md
+index fc7ba64..3e37710 100644
+--- a/README.md
++++ b/README.md
+@@ -1,18 +1,44 @@
+-# Context
+-[![SROS2 CI](https://github.com/ros2/sros2/actions/workflows/test.yml/badge.svg?branch=rolling)](https://github.com/ros2/sros2/actions/workflows/test.yml?query=branch%3Arolling)
+-[![codecov](https://codecov.io/gh/ros2/sros2/branch/rolling/graph/badge.svg)](https://codecov.io/gh/ros2/sros2)
++# SROS2 with native ML-DSA identities
+ 
+-This package provides the tools and instructions to use ROS 2 on top of DDS-Security.
+-The security feature is tested across platforms (Linux, macOS, and Windows) as well as across different languages (C++ and Python).
++This experimental fork adds native OpenSSL 3.5 ML-DSA identity certificate
++generation to upstream SROS2. It is intended for PQSec-DDS experiments. The
++normal SROS2 behavior remains the default.
+ 
+-This package has been tested against eProsima FastDDS, Eclipse CycloneDDS and RTI Connext.
+-If you want to run the demo using RTI Connext Secure you will need a license for it and you will need to install it.
++The fork deliberately uses two certification authorities when ML-DSA is
++selected:
+ 
+-These Tutorials are written for the latest state of the repository.
+-If you are using an older ROS 2 distribution please refer to the tutorials on the branch named after the distribution, e.g. for Crystal: https://github.com/ros2/sros2/blob/crystal/README.md
++- The identity CA and participant certificates use `ML-DSA-44`,
++  `ML-DSA-65`, or `ML-DSA-87` from OpenSSL's default provider.
++- The permissions CA stays on P-256 because the OpenSSL CMS path used for DDS
++  governance and permissions does not yet support digestless ML-DSA signing.
+ 
+-[Try SROS2 on Linux](SROS2_Linux.md)
++This makes participant authentication post-quantum in the experimental DDS
++plugin. It does not make every SROS2 artifact post-quantum, and it does not
++define an official DDS Security profile.
+ 
+-[Try SROS2 on MacOS](SROS2_MacOS.md)
++## Use
+ 
+-[Try SROS2 on Windows](SROS2_Windows.md)
++Install ROS 2 Lyrical and OpenSSL 3.5 or newer, then build this repository as a
++ROS overlay:
++
++```bash
++source /opt/ros/lyrical/setup.bash
++colcon build --packages-select sros2 sros2_cmake
++source install/setup.bash
++
++ros2 security create_keystore demo_keystore \
++  --identity-algorithm ML-DSA-44
++ros2 security create_enclave demo_keystore /talker_listener/talker
++ros2 security create_enclave demo_keystore /talker_listener/listener
++```
++
++Set `SROS2_OPENSSL` only when the required OpenSSL executable is not on
++`PATH`. No liboqs or oqsprovider installation is needed for standardized
++ML-DSA algorithms.
++
++See [the integration guide](sros2_pqsecdds.md) for the PQSec-DDS boundary and
++the upstream platform guides for general SROS2 usage:
++
++- [Linux](SROS2_Linux.md)
++- [macOS](SROS2_MacOS.md)
++- [Windows](SROS2_Windows.md)
+diff --git a/sros2/sros2/_utilities.py b/sros2/sros2/_utilities.py
+index c390493..e24fcd5 100644
+--- a/sros2/sros2/_utilities.py
++++ b/sros2/sros2/_utilities.py
+@@ -18,6 +18,8 @@ import os
+ import pathlib
+ import platform
+ import shutil
++import subprocess
++import tempfile
+ 
+ from cryptography import x509
+ from cryptography.hazmat.primitives import hashes
+@@ -28,6 +30,9 @@ import sros2.errors
+ 
+ _DOMAIN_ID_ENV = 'ROS_DOMAIN_ID'
+ _KEYSTORE_DIR_ENV = 'ROS_SECURITY_KEYSTORE'
++_OPENSSL_ENV = 'SROS2_OPENSSL'
++
++PQ_IDENTITY_ALGORITHMS = ('ML-DSA-44', 'ML-DSA-65', 'ML-DSA-87')
+ 
+ 
+ def create_symlink(*, src: pathlib.Path, dst: pathlib.Path):
+@@ -117,6 +122,84 @@ def build_key_and_cert(subject_name, *, ca=False, ca_key=None, issuer_name=''):
+     return (cert, private_key)
+ 
+ 
++def build_pq_identity_ca(
++    subject_name: str,
++    algorithm: str,
++    key_path: pathlib.Path,
++    cert_path: pathlib.Path,
++) -> None:
++    """Create a native OpenSSL ML-DSA CA key and self-signed certificate."""
++    _validate_pq_identity_algorithm(algorithm)
++    _run_openssl([
++        'req', '-new', '-x509', '-newkey', algorithm, '-noenc',
++        '-keyout', str(key_path), '-out', str(cert_path), '-days', '3650',
++        '-subj', _openssl_subject(subject_name),
++        '-addext', 'basicConstraints=critical,CA:true,pathlen:1',
++        '-addext', 'keyUsage=critical,keyCertSign,cRLSign',
++    ])
++
++
++def build_pq_identity_certificate(
++    subject_name: str,
++    algorithm: str,
++    ca_key_path: pathlib.Path,
++    ca_cert_path: pathlib.Path,
++    key_path: pathlib.Path,
++    cert_path: pathlib.Path,
++) -> None:
++    """Create an ML-DSA identity certificate signed by an ML-DSA CA."""
++    _validate_pq_identity_algorithm(algorithm)
++    with tempfile.TemporaryDirectory(prefix='sros2-pq-') as temporary_dir:
++        csr_path = pathlib.Path(temporary_dir).joinpath('identity.csr.pem')
++        extensions_path = pathlib.Path(temporary_dir).joinpath('identity.ext')
++        extensions_path.write_text(
++            'basicConstraints=critical,CA:false\n'
++            'keyUsage=critical,digitalSignature\n',
++            encoding='utf-8')
++        _run_openssl([
++            'req', '-new', '-newkey', algorithm, '-noenc',
++            '-keyout', str(key_path), '-out', str(csr_path),
++            '-subj', _openssl_subject(subject_name),
++        ])
++        _run_openssl([
++            'x509', '-req', '-in', str(csr_path),
++            '-CA', str(ca_cert_path), '-CAkey', str(ca_key_path),
++            '-set_serial', f'0x{x509.random_serial_number():x}',
++            '-days', '3650', '-extfile', str(extensions_path),
++            '-out', str(cert_path),
++        ])
++    _run_openssl([
++        'verify', '-CAfile', str(ca_cert_path), str(cert_path),
++    ])
++
++
++def _validate_pq_identity_algorithm(algorithm: str) -> None:
++    if algorithm not in PQ_IDENTITY_ALGORITHMS:
++        choices = ', '.join(PQ_IDENTITY_ALGORITHMS)
++        raise sros2.errors.CryptoError(
++            f"unsupported PQ identity algorithm '{algorithm}'; choose one of: {choices}")
++
++
++def _openssl_subject(common_name: str) -> str:
++    escaped_name = common_name.replace('\\', '\\\\').replace('/', '\\/')
++    return f'/CN={escaped_name}'
++
++
++def _run_openssl(arguments: list[str]) -> None:
++    executable = os.getenv(_OPENSSL_ENV, 'openssl')
++    try:
++        subprocess.run(
++            [executable, *arguments],
++            check=True,
++            capture_output=True,
++            text=True)
++    except (OSError, subprocess.CalledProcessError) as error:
++        detail = getattr(error, 'stderr', '') or str(error)
++        raise sros2.errors.CryptoError(
++            f"OpenSSL command failed ({executable} {' '.join(arguments[:2])}): "
++            f'{detail.strip()}') from error
++
++
+ def write_key(
+     key,
+     key_path: pathlib.Path,
+diff --git a/sros2/sros2/errors.py b/sros2/sros2/errors.py
+index 085db0b..4658f34 100644
+--- a/sros2/sros2/errors.py
++++ b/sros2/sros2/errors.py
+@@ -25,6 +25,10 @@ class KeystoreError(SROS2Error):
+     """Base class for keystore-related exceptions."""
+ 
+ 
++class CryptoError(KeystoreError):
++    """Exception raised when an external cryptographic operation fails."""
++
++
+ class InvalidKeystoreError(KeystoreError):
+     """Exception raised when the keystore is invalid."""
+ 
+diff --git a/sros2/sros2/keystore/_enclave.py b/sros2/sros2/keystore/_enclave.py
+index e66b9d7..1df9521 100644
+--- a/sros2/sros2/keystore/_enclave.py
++++ b/sros2/sros2/keystore/_enclave.py
+@@ -131,6 +131,18 @@ def _create_key_and_cert(
+         identity: str,
+         cert_path: pathlib.Path,
+         key_path: pathlib.Path):
++    identity_algorithm = _keystore.get_identity_algorithm(
++        keystore_ca_key_path.parents[1])
++    if identity_algorithm != _keystore._CLASSICAL_IDENTITY_ALGORITHM:
++        _utilities.build_pq_identity_certificate(
++            identity,
++            identity_algorithm,
++            keystore_ca_key_path,
++            keystore_ca_cert_path,
++            key_path,
++            cert_path)
++        return
++
+     # Load the CA cert and key from disk
+     ca_cert = _utilities.load_cert(keystore_ca_cert_path)
+ 
+diff --git a/sros2/sros2/keystore/_keystore.py b/sros2/sros2/keystore/_keystore.py
+index 58e2a95..4aa182e 100644
+--- a/sros2/sros2/keystore/_keystore.py
++++ b/sros2/sros2/keystore/_keystore.py
+@@ -28,9 +28,14 @@ _KS_ENCLAVES = 'enclaves'
+ _KS_PUBLIC = 'public'
+ _KS_PRIVATE = 'private'
+ _DEFAULT_COMMON_NAME = 'sros2CA'
++_IDENTITY_ALGORITHM_FILE = 'identity_algorithm'
++_CLASSICAL_IDENTITY_ALGORITHM = 'EC'
+ 
+ 
+-def create_keystore(keystore_path: pathlib.Path) -> None:
++def create_keystore(
++    keystore_path: pathlib.Path,
++    identity_algorithm: str = _CLASSICAL_IDENTITY_ALGORITHM,
++) -> None:
+     if is_valid_keystore(keystore_path):
+         raise sros2.errors.KeystoreExistsError(keystore_path)
+ 
+@@ -64,12 +69,24 @@ def create_keystore(keystore_path: pathlib.Path) -> None:
+     # Create new CA if one doesn't already exist
+     if not all(x.is_file() for x in required_files):
+         _create_ca_key_cert(keystore_ca_key_path, keystore_ca_cert_path)
+-
+-        for path in (keystore_permissions_ca_cert_path, keystore_identity_ca_cert_path):
+-            _utilities.create_symlink(src=pathlib.Path('ca.cert.pem'), dst=path)
+-
+-        for path in (keystore_permissions_ca_key_path, keystore_identity_ca_key_path):
+-            _utilities.create_symlink(src=pathlib.Path('ca.key.pem'), dst=path)
++        _utilities.create_symlink(
++            src=pathlib.Path('ca.cert.pem'), dst=keystore_permissions_ca_cert_path)
++        _utilities.create_symlink(
++            src=pathlib.Path('ca.key.pem'), dst=keystore_permissions_ca_key_path)
++
++        if identity_algorithm == _CLASSICAL_IDENTITY_ALGORITHM:
++            _utilities.create_symlink(
++                src=pathlib.Path('ca.cert.pem'), dst=keystore_identity_ca_cert_path)
++            _utilities.create_symlink(
++                src=pathlib.Path('ca.key.pem'), dst=keystore_identity_ca_key_path)
++        else:
++            _utilities.build_pq_identity_ca(
++                _DEFAULT_COMMON_NAME,
++                identity_algorithm,
++                keystore_identity_ca_key_path,
++                keystore_identity_ca_cert_path)
++            keystore_path.joinpath(_KS_PRIVATE, _IDENTITY_ALGORITHM_FILE).write_text(
++                f'{identity_algorithm}\n', encoding='utf-8')
+ 
+     # Create governance file if it doesn't already exist
+     gov_path = keystore_path.joinpath(_KS_ENCLAVES, 'governance.xml')
+@@ -108,6 +125,14 @@ def get_keystore_private_dir(keystore_path: pathlib.Path) -> pathlib.Path:
+     return keystore_path.joinpath(_KS_PRIVATE)
+ 
+ 
++def get_identity_algorithm(keystore_path: pathlib.Path) -> str:
++    algorithm_path = get_keystore_private_dir(keystore_path).joinpath(
++        _IDENTITY_ALGORITHM_FILE)
++    if not algorithm_path.is_file():
++        return _CLASSICAL_IDENTITY_ALGORITHM
++    return algorithm_path.read_text(encoding='utf-8').strip()
++
++
+ def _create_ca_key_cert(ca_key_out_path: pathlib.Path, ca_cert_out_path: pathlib.Path):
+     cert, private_key = _utilities.build_key_and_cert(
+         x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, _DEFAULT_COMMON_NAME)]),
+diff --git a/sros2/sros2/verb/create_keystore.py b/sros2/sros2/verb/create_keystore.py
+index fc6dfca..ff1f00e 100644
+--- a/sros2/sros2/verb/create_keystore.py
++++ b/sros2/sros2/verb/create_keystore.py
+@@ -17,6 +17,7 @@ import sys
+ 
+ from argcomplete.completers import DirectoriesCompleter
+ 
++from sros2 import _utilities
+ import sros2.errors
+ import sros2.keystore
+ from sros2.verb import VerbExtension
+@@ -28,10 +29,15 @@ class CreateKeystoreVerb(VerbExtension):
+     def add_arguments(self, parser, cli_name) -> None:
+         arg = parser.add_argument('ROOT', type=pathlib.Path, help='root path of keystore')
+         arg.completer = DirectoriesCompleter()
++        parser.add_argument(
++            '--identity-algorithm',
++            choices=('EC', *_utilities.PQ_IDENTITY_ALGORITHMS),
++            default='EC',
++            help='identity certificate algorithm (default: EC)')
+ 
+     def main(self, *, args) -> int:
+         try:
+-            sros2.keystore.create_keystore(args.ROOT)
++            sros2.keystore.create_keystore(args.ROOT, args.identity_algorithm)
+         except sros2.errors.SROS2Error as e:
+             print(f'Unable to create keystore: {e}', file=sys.stderr)
+             return 1
+diff --git a/sros2/test/sros2/test_utilities.py b/sros2/test/sros2/test_utilities.py
+index be14308..bdace67 100644
+--- a/sros2/test/sros2/test_utilities.py
++++ b/sros2/test/sros2/test_utilities.py
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ import pathlib
++import subprocess
+ 
+ import pytest
+ 
+@@ -32,3 +33,35 @@ def test_get_keystore_path_from_env_error(monkeypatch):
+         _utilities.get_keystore_path_from_env()
+ 
+     assert e.value.variable_name == _utilities._KEYSTORE_DIR_ENV
++
++
++def test_openssl_subject_escapes_enclave_path():
++    assert _utilities._openssl_subject('/demo/talker') == r'/CN=\/demo\/talker'
++
++
++def _supports_mldsa44():
++    result = subprocess.run(
++        ['openssl', 'list', '-signature-algorithms'],
++        capture_output=True,
++        text=True)
++    return result.returncode == 0 and 'ML-DSA-44' in result.stdout
++
++
++@pytest.mark.skipif(not _supports_mldsa44(), reason='OpenSSL lacks ML-DSA-44')
++def test_build_pq_identity_certificate(tmp_path):
++    ca_key = tmp_path / 'ca.key.pem'
++    ca_cert = tmp_path / 'ca.cert.pem'
++    key = tmp_path / 'node.key.pem'
++    cert = tmp_path / 'node.cert.pem'
++
++    _utilities.build_pq_identity_ca(
++        'sros2CA', 'ML-DSA-44', ca_key, ca_cert)
++    _utilities.build_pq_identity_certificate(
++        '/demo/talker', 'ML-DSA-44', ca_key, ca_cert, key, cert)
++
++    result = subprocess.run(
++        ['openssl', 'verify', '-CAfile', str(ca_cert), str(cert)],
++        check=True,
++        capture_output=True,
++        text=True)
++    assert result.stdout.rstrip().endswith(': OK')
+diff --git a/sros2_pqsecdds.md b/sros2_pqsecdds.md
+new file mode 100644
+index 0000000..14b5f40
+--- /dev/null
++++ b/sros2_pqsecdds.md
+@@ -0,0 +1,35 @@
++# PQSec-DDS integration
++
++Use this fork with the current
++[PQSec-DDS CycloneDDS adapter](https://github.com/qursa-uc3m/pqsec-dds).
++Both projects use OpenSSL EVP and the standardized OpenSSL 3.5 algorithm names.
++
++The responsibilities are separate:
++
++| Layer | Experimental protection |
++|---|---|
++| SROS2 identity artifacts | ML-DSA X.509 CA and participant certificates |
++| DDS authentication plugin | ML-KEM or hybrid KEM handshake and ML-DSA identity proof |
++| DDS access control | P-256 CMS-signed governance and permissions |
++| DDS data protection | CycloneDDS built-in DDS Security cryptographic plugin |
++
++Build the adapter with a native OpenSSL KEM:
++
++```bash
++git clone https://github.com/qursa-uc3m/pqsec-dds.git
++cd pqsec-dds
++adapters/cyclonedds/scripts/build_plugin.sh \
++  -c /opt/ros/lyrical \
++  -s /usr \
++  --kem mlkem768 \
++  -t Release
++```
++
++Then generate the keystore as shown in the root README, point CycloneDDS at
++the adapter's security configuration, and run ROS nodes with their normal
++`--enclave` arguments. The complete, containerized talker/listener test lives
++in [ros2-pqc-demos](https://github.com/qursa-uc3m/ros2-pqc-demos).
++
++The adapter handshake is experimental and requires the same PQSec-DDS plugin
++and KEM selection at both peers. It is not interoperable with a stock DDS
++Security authentication plugin.

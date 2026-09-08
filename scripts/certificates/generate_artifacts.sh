@@ -38,8 +38,12 @@ for role in talker listener zenohd; do
   source_enclave=${keystore}/enclaves/talker_listener/${role}
   target_enclave=${zenoh_enclaves}/${role}
   mkdir -p "${target_enclave}"
-  cp -a "${source_enclave}/." "${target_enclave}/"
-  cp -L "${tls_ca_cert}" "${target_enclave}/identity_ca.cert.pem"
+  for artifact in cert.pem key.pem identity_ca.cert.pem \
+      permissions_ca.cert.pem governance.p7s permissions.p7s permissions.xml; do
+    cp -L "${source_enclave}/${artifact}" "${target_enclave}/${artifact}"
+  done
+  cp -L --remove-destination \
+    "${tls_ca_cert}" "${target_enclave}/identity_ca.cert.pem"
   openssl genpkey -algorithm EC \
     -pkeyopt ec_paramgen_curve:P-256 \
     -out "${target_enclave}/key.pem"

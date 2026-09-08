@@ -35,26 +35,31 @@ make test-zenoh
 `make test-dds` builds the pinned current PQSec-DDS Cyclone adapter, generates
 the security artifacts, and requires a listener to receive a message.
 `make test-zenoh` additionally builds the Zenoh 1.8 stack with rustls's AWS-LC
-provider, proves that `X25519MLKEM768` was negotiated, and then requires a
-message through the mTLS- and ACL-protected router.
+provider, proves that `X25519MLKEM768` was negotiated, proves that an anonymous
+TLS client is rejected, checks an ACL-denied topic, and then requires a message
+through the protected router.
 
 Useful overrides:
 
 ```bash
-KEM_ALGORITHM=x25519_mlkem768 make test-dds
 IDENTITY_ALGORITHM=ML-DSA-65 make test-dds
 KEEP_CONTAINERS=1 make test-zenoh
 ```
 
+The DDS adapter also supports native hybrid KEMs when built against OpenSSL
+3.6 or newer. The default Lyrical image uses OpenSSL 3.5, so this demo defaults
+to `mlkem768`.
+
 The test command recreates the Compose certificate volume. Use
-`KEEP_CONTAINERS=1` to preserve containers and logs after a run.
+`KEEP_CONTAINERS=1` to preserve containers after a run. On failure, the runner
+prints the temporary directory where it retained the command logs.
 
 ## Security architecture and limitations
 
 Artifact generation starts from one SROS2 policy and one keystore:
 
-1. The rebased SROS2 fork asks the OpenSSL 3.5 default provider to create the
-   DDS identity CA and participant certificates with ML-DSA.
+1. A patch based on current upstream SROS2 asks the OpenSSL 3.5 default provider
+   to create the DDS identity CA and participant certificates with ML-DSA.
 2. The SROS2 permissions CA remains ECDSA and signs DDS governance and
    permissions through CMS/S/MIME. Native OpenSSL ML-DSA cannot currently sign
    CMS because ML-DSA is digestless while that CMS path requests a digest.
@@ -72,7 +77,7 @@ session establishment but does not claim PQ certificate authentication.
 - `docker/`: Lyrical base, CycloneDDS adapter, and Zenoh/rustls images
 - `config/`: CycloneDDS configuration, Zenoh seeds, and the shared SROS2 policy
 - `scripts/`: pinned builds, artifact generation, and pass/fail test runners
-- `sros2/`: fork rebased onto upstream `rolling`, with native OpenSSL ML-DSA
+- `patches/`: pinned SROS2 and Zenoh/rustls integration deltas
 - `docs/project-status.md`: standards, community, and presentation strategy
 
 PQSec-DDS also contains an OpenDDS adapter. It is not part of this ROS RMW demo

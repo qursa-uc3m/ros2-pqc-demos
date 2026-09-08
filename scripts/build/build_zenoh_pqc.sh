@@ -2,14 +2,14 @@
 set -euo pipefail
 
 if [[ $# -ne 6 ]]; then
-  echo "usage: $0 ZENOH_COMMIT ZENOHC_COMMIT ZENOHCXX_COMMIT RMW_ZENOH_REF PREFIX OVERLAY" >&2
+  echo "usage: $0 ZENOH_COMMIT ZENOHC_COMMIT ZENOHCXX_COMMIT RMW_ZENOH_COMMIT PREFIX OVERLAY" >&2
   exit 2
 fi
 
 zenoh_commit=$1
 zenohc_commit=$2
 zenohcxx_commit=$3
-rmw_zenoh_ref=$4
+rmw_zenoh_commit=$4
 prefix=$5
 overlay=$6
 source_root=/opt/src
@@ -27,23 +27,68 @@ git -C "${zenoh_source}" apply /opt/patches/zenoh-rustls-aws-lc-pqc.patch
 git clone https://github.com/eclipse-zenoh/zenoh-c.git "${zenohc_source}"
 git -C "${zenohc_source}" checkout --detach "${zenohc_commit}"
 
-# zenoh-c pins the same Zenoh Git revision in its generated Cargo input. Point
-# every such dependency at the locally patched Git checkout, retaining the pin.
-while IFS= read -r manifest; do
-  sed -i "s#https://github.com/eclipse-zenoh/zenoh.git#file://${zenoh_source}#g" "${manifest}"
-done < <(grep -rl --include='Cargo.toml*' --include='Cargo.lock' \
-  'https://github.com/eclipse-zenoh/zenoh.git' "${zenohc_source}")
+# A file:// Git dependency would read a committed revision and silently ignore
+# the provider patch in this working tree. Point zenoh-c's direct dependencies,
+# including its opaque-type helper crate, at the patched workspace paths.
+# Internal Zenoh dependencies are already workspace-relative paths.
+for manifest in Cargo.toml Cargo.toml.in build-resources/opaque-types/Cargo.toml; do
+  manifest_path=${zenohc_source}/${manifest}
+  sed -Ei \
+    "s#git = \"https://github.com/eclipse-zenoh/zenoh.git\", (branch|rev) = \"[^\"]+\"#path = \"${zenoh_source}/zenoh\"#" \
+    "${manifest_path}"
+  sed -i \
+    "s#zenoh-ext = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh\"#zenoh-ext = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh-ext\"#" \
+    "${manifest_path}"
+  sed -i \
+    "s#zenoh-protocol = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh\"#zenoh-protocol = { version = \"1.8.0\", path = \"${zenoh_source}/commons/zenoh-protocol\"#" \
+    "${manifest_path}"
+  sed -i \
+    "s#zenoh-runtime = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh\"#zenoh-runtime = { version = \"1.8.0\", path = \"${zenoh_source}/commons/zenoh-runtime\"#" \
+    "${manifest_path}"
+  sed -i \
+    "s#zenoh-util = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh\"#zenoh-util = { version = \"1.8.0\", path = \"${zenoh_source}/commons/zenoh-util\"#" \
+    "${manifest_path}"
+  sed -i \
+    "s#zenoh-pinned-deps-1-75 = { version = \"1.8.0\", path = \"${zenoh_source}/zenoh\"#zenoh-pinned-deps-1-75 = { version = \"1.8.0\", path = \"${zenoh_source}/commons/zenoh-pinned-deps-1-75\"#" \
+    "${manifest_path}"
+  if grep -q 'git = "https://github.com/eclipse-zenoh/zenoh.git"' \
+      "${manifest_path}"; then
+    echo "Failed to replace every Zenoh Git dependency in ${manifest}" >&2
+    exit 1
+  fi
+done
 
 cmake -S "${zenohc_source}" -B "${zenohc_source}/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="${prefix}" \
   -DBUILD_SHARED_LIBS=ON \
+  -DZENOHC_BUILD_IN_SOURCE_TREE=OFF \
   -DZENOHC_BUILD_WITH_UNSTABLE_API=ON \
   -DZENOHC_CARGO_FLAGS='--features=shared-memory zenoh/transport_serial'
+zenohc_manifest=${zenohc_source}/build/release/Cargo.toml
+test -f "${zenohc_manifest}"
+grep -q "path = \"${zenoh_source}/zenoh\"" "${zenohc_manifest}"
+if grep -q 'git = "https://github.com/eclipse-zenoh/zenoh.git"' \
+    "${zenohc_manifest}"; then
+  echo 'Generated Zenoh C manifest restored the unpatched Git dependency' >&2
+  exit 1
+fi
+
+# Reconcile the existing lockfile's Git source entries with the local paths
+# before zenoh-c copies it into the offline opaque-type helper build.
+rustls_features=$(cargo tree \
+  --manifest-path "${zenohc_manifest}" \
+  --edges features --invert rustls)
+grep -q 'rustls feature "aws_lc_rs"' <<<"${rustls_features}"
+grep -q 'rustls feature "prefer-post-quantum"' <<<"${rustls_features}"
+if grep -q 'rustls feature "ring"' <<<"${rustls_features}"; then
+  echo 'The patched Zenoh build still enables rustls ring' >&2
+  exit 1
+fi
 cmake --build "${zenohc_source}/build" --parallel "$(nproc)"
 cmake --install "${zenohc_source}/build"
 
-grep -q 'name = "aws-lc-rs"' "${zenohc_source}/Cargo.lock"
+grep -q 'name = "aws-lc-rs"' "${zenohc_source}/build/release/Cargo.lock"
 
 git clone https://github.com/eclipse-zenoh/zenoh-cpp.git "${zenohcxx_source}"
 git -C "${zenohcxx_source}" checkout --detach "${zenohcxx_commit}"
@@ -55,8 +100,8 @@ cmake -S "${zenohcxx_source}" -B "${zenohcxx_source}/build" -G Ninja \
 cmake --build "${zenohcxx_source}/build" --parallel "$(nproc)"
 cmake --install "${zenohcxx_source}/build"
 
-git clone --branch "${rmw_zenoh_ref}" --single-branch \
-  https://github.com/ros2/rmw_zenoh.git "${rmw_source}"
+git clone https://github.com/ros2/rmw_zenoh.git "${rmw_source}"
+git -C "${rmw_source}" checkout --detach "${rmw_zenoh_commit}"
 
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 cd "${rmw_source}"
