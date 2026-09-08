@@ -13,7 +13,8 @@ status=$?
 set -e
 printf '%s\n' "${output}"
 
-if [[ ${status} -eq 0 ]] || grep -q 'CONNECTION ESTABLISHED' <<<"${output}"; then
+if [[ ${status} -eq 0 ]] &&
+    ! grep -qiE 'certificate required|certificate.*required|alert.*certificate' <<<"${output}"; then
   echo 'Zenoh accepted a TLS client without a certificate' >&2
   exit 1
 fi

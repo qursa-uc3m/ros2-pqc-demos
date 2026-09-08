@@ -3,6 +3,12 @@ set -euo pipefail
 
 source /workspace/scripts/setup/setup_base_env.sh
 
+artifact_mode=${ARTIFACT_MODE:-all}
+case "${artifact_mode}" in
+  all|dds|zenoh) ;;
+  *) echo "Unsupported ARTIFACT_MODE=${artifact_mode}" >&2; exit 2 ;;
+esac
+
 cert_root=${CERT_ROOT:-/workspace/certs}
 keystore=${cert_root}/keystore
 zenoh_enclaves=${cert_root}/zenoh-enclaves
@@ -28,6 +34,15 @@ ros2 security create_permission \
   "${keystore}" /talker_listener/talker "${policy}"
 ros2 security create_permission \
   "${keystore}" /talker_listener/listener "${policy}"
+
+openssl verify -CAfile "${keystore}/public/identity_ca.cert.pem" \
+  "${keystore}/enclaves/talker_listener/talker/cert.pem" \
+  "${keystore}/enclaves/talker_listener/listener/cert.pem"
+
+if [[ "${artifact_mode}" == dds ]]; then
+  echo "DDS artifacts written below ${cert_root}"
+  exit 0
+fi
 
 # Zenoh's stable rustls path performs hybrid-PQ TLS key establishment, while
 # authentication remains ECDSA X.509. Reuse SROS2's classical permissions CA
@@ -68,8 +83,10 @@ for role in talker listener zenohd; do
   openssl verify -CAfile "${tls_ca_cert}" "${target_enclave}/cert.pem"
 done
 
-if command -v ros2 >/dev/null \
-    && ros2 pkg prefix zenoh_security_tools >/dev/null 2>&1; then
+set +u
+source /opt/rmw-zenoh-overlay/install/setup.bash
+set -u
+if ros2 pkg prefix zenoh_security_tools >/dev/null 2>&1; then
   pushd "${zenoh_configs}" >/dev/null
   ros2 run zenoh_security_tools generate_configs \
     --policy "${policy}" \
@@ -79,11 +96,15 @@ if command -v ros2 >/dev/null \
     --ros-domain-id "${ROS_DOMAIN_ID:-0}"
   popd >/dev/null
 else
-  echo 'zenoh_security_tools is required; run artifact generation with the Zenoh image' >&2
+  echo 'The patched zenoh_security_tools overlay is required' >&2
   exit 1
 fi
 
-openssl verify -CAfile "${keystore}/public/identity_ca.cert.pem" \
-  "${keystore}/enclaves/talker_listener/talker/cert.pem" \
-  "${keystore}/enclaves/talker_listener/listener/cert.pem"
-echo "Artifacts written below ${cert_root}"
+for role in talker listener zenohd; do
+  test -s "${zenoh_configs}/${role}.json5"
+done
+if grep -n '"tcp/' "${zenoh_configs}"/*.json5; then
+  echo 'Generated Zenoh security config still contains a TCP endpoint' >&2
+  exit 1
+fi
+echo "DDS and Zenoh artifacts written below ${cert_root}"

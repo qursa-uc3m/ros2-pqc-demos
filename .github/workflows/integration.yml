@@ -1,0 +1,50 @@
+name: Docker integration
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: ${{ matrix.demo }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+            runner: ubuntu-24.04
+            demo: dds
+          - arch: x86-64
+            runner: ubuntu-24.04
+            demo: zenoh
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            demo: dds
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            demo: zenoh
+    steps:
+      - uses: actions/checkout@v6
+      - name: Show Docker capacity
+        run: docker system df
+      - name: Run end-to-end demo
+        run: make test-${{ matrix.demo }}
+
+  openssl4-cms:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test ML-DSA CMS with OpenSSL 4
+        run: make test-openssl4-cms

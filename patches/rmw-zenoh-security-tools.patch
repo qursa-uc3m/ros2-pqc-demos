@@ -1,0 +1,99 @@
+diff --git a/zenoh_cpp_vendor/CMakeLists.txt b/zenoh_cpp_vendor/CMakeLists.txt
+--- a/zenoh_cpp_vendor/CMakeLists.txt
++++ b/zenoh_cpp_vendor/CMakeLists.txt
+@@ -7,10 +7,13 @@ if(NOT CMAKE_CXX_STANDARD)
+ endif()
+ 
+ find_package(ament_cmake REQUIRED)
+-find_package(ament_cmake_vendor_package REQUIRED)
+ 
+ option(USE_SYSTEM_ZENOH "Use non-vendored zenoh from the system" OFF)
+ 
++if(NOT USE_SYSTEM_ZENOH)
++  find_package(ament_cmake_vendor_package REQUIRED)
++endif()
++
+ if(USE_SYSTEM_ZENOH)
+   find_package(zenohc REQUIRED)
+   find_package(zenohcxx REQUIRED)
+diff --git a/zenoh_security_tools/src/config_generator.cpp b/zenoh_security_tools/src/config_generator.cpp
+--- a/zenoh_security_tools/src/config_generator.cpp
++++ b/zenoh_security_tools/src/config_generator.cpp
+@@ -144,6 +144,31 @@ json to_adv_sub_query_key_exprs(
+   return key_exprs_ret;
+ }
+ 
++//==============================================================================
++// Zenoh expands endpoint settings into either arrays or mode-keyed objects.
++// Walk both representations so every configured endpoint uses TLS.
++void replace_endpoint_transports(json & endpoints)
++{
++  if (endpoints.is_string()) {
++    std::string endpoint = endpoints.get<std::string>();
++    const std::size_t slash_pos = endpoint.find('/');
++    if (slash_pos == std::string::npos) {
++      throw std::runtime_error("Zenoh endpoint has no transport prefix: " + endpoint);
++    }
++    endpoints = endpoint.replace(0, slash_pos, "tls");
++    return;
++  }
++  if (endpoints.is_array() || endpoints.is_object()) {
++    for (json & endpoint : endpoints) {
++      replace_endpoint_transports(endpoint);
++    }
++    return;
++  }
++  if (!endpoints.is_null()) {
++    throw std::runtime_error("Zenoh endpoints must be strings, arrays, or objects");
++  }
++}
++
+ //==============================================================================
+ std::string check_name(
+   const std::string & name,
+@@ -498,20 +523,8 @@ void ConfigGenerator::fill_certificates(
+     [](const std::string & key, zenoh::Config & config) -> void
+     {
+-      try {
+-        const json endpoints = json::parse(config.get(key));
+-        json tls_endpoints_json = json::array();
+-        for (const json & endpoint : endpoints) {
+-          std::string endpoint_str = endpoint.get<std::string>();
+-          const std::size_t slash_pos = endpoint_str.find('/');
+-          if (slash_pos != std::string::npos) {
+-            tls_endpoints_json.push_back(endpoint_str.replace(0, slash_pos, "tls"));
+-          }
+-        }
+-        config.insert_json5(key, tls_endpoints_json.dump());
+-      } catch (const std::exception & e) {
+-        std::cerr << "Error replacing transport with tls: " << e.what() << std::endl;
+-        return;
+-      }
++      json endpoints = json::parse(config.get(key));
++      replace_endpoint_transports(endpoints);
++      config.insert_json5(key, endpoints.dump());
+     };
+ 
+   replace_with_tls("connect/endpoints", config);
+@@ -639,13 +652,16 @@ void ConfigGenerator::parse_enclaves(const tinyxml2::XMLElement * root)
+   if (enclaves_node != nullptr) {
+     if (strcmp(enclaves_node->Name(), enclaves_str) == 0) {
+       const tinyxml2::XMLElement * enclave_node = enclaves_node->FirstChildElement();
+-      if (enclave_node != nullptr) {
+-        if (strcmp(enclave_node->Name(), enclave_str) == 0) {
++      do {
++        if (enclave_node != nullptr) {
++          if (strcmp(enclave_node->Name(), enclave_str) != 0) {
++            throw std::runtime_error("Invalid file: expected enclave element");
++          }
+           parse_profiles(enclave_node);
++        } else {
++          throw std::runtime_error("Invalid file");
+         }
+-      } else {
+-        throw std::runtime_error("Invalid file");
+-      }
++      } while ((enclave_node = enclave_node->NextSiblingElement()) != nullptr);
+     } else {
+       std::string error_msg = "Invalid file: Malformed Zenoh policy root. Line: " +
+         std::to_string(enclaves_node->GetLineNum());

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 6 ]]; then
-  echo "usage: $0 ZENOH_COMMIT ZENOHC_COMMIT ZENOHCXX_COMMIT RMW_ZENOH_COMMIT PREFIX OVERLAY" >&2
+if [[ $# -lt 6 || $# -gt 7 ]]; then
+  echo "usage: $0 ZENOH_COMMIT ZENOHC_COMMIT ZENOHCXX_COMMIT RMW_ZENOH_COMMIT PREFIX OVERLAY [core|rmw|all]" >&2
   exit 2
 fi
 
@@ -12,6 +12,11 @@ zenohcxx_commit=$3
 rmw_zenoh_commit=$4
 prefix=$5
 overlay=$6
+phase=${7:-all}
+case "${phase}" in
+  core|rmw|all) ;;
+  *) echo "unsupported build phase: ${phase}" >&2; exit 2 ;;
+esac
 source_root=/opt/src
 zenoh_source=${source_root}/zenoh
 zenohc_source=${source_root}/zenoh-c
@@ -20,9 +25,15 @@ rmw_source=${source_root}/rmw_zenoh
 
 mkdir -p "${source_root}" "${prefix}" "${overlay}"
 
+if [[ "${phase}" == core || "${phase}" == all ]]; then
 git clone https://github.com/eclipse-zenoh/zenoh.git "${zenoh_source}"
 git -C "${zenoh_source}" checkout --detach "${zenoh_commit}"
-git -C "${zenoh_source}" apply /opt/patches/zenoh-rustls-aws-lc-pqc.patch
+# The focused provider patch intentionally has zero-context mechanical hunks;
+# the pinned commit and the check phase keep their targets deterministic.
+git -C "${zenoh_source}" apply --check --unidiff-zero \
+  /opt/patches/zenoh-rustls-aws-lc-pqc.patch
+git -C "${zenoh_source}" apply --unidiff-zero \
+  /opt/patches/zenoh-rustls-aws-lc-pqc.patch
 
 git clone https://github.com/eclipse-zenoh/zenoh-c.git "${zenohc_source}"
 git -C "${zenohc_source}" checkout --detach "${zenohc_commit}"
@@ -99,11 +110,17 @@ cmake -S "${zenohcxx_source}" -B "${zenohcxx_source}/build" -G Ninja \
   -DCMAKE_PREFIX_PATH="${prefix}"
 cmake --build "${zenohcxx_source}/build" --parallel "$(nproc)"
 cmake --install "${zenohcxx_source}/build"
+fi
 
+if [[ "${phase}" == rmw || "${phase}" == all ]]; then
 git clone https://github.com/ros2/rmw_zenoh.git "${rmw_source}"
 git -C "${rmw_source}" checkout --detach "${rmw_zenoh_commit}"
+git -C "${rmw_source}" apply --check /opt/patches/rmw-zenoh-security-tools.patch
+git -C "${rmw_source}" apply /opt/patches/rmw-zenoh-security-tools.patch
 
+set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
+set -u
 cd "${rmw_source}"
 colcon build \
   --install-base "${overlay}/install" \
@@ -115,3 +132,4 @@ colcon build \
     -DCMAKE_PREFIX_PATH="${prefix}"
 
 test -f "${overlay}/install/setup.bash"
+fi

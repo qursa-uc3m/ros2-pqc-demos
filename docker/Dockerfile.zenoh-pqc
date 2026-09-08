@@ -1,5 +1,5 @@
 ARG BASE_IMAGE=ros2-pqc-demos:base
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS builder
 
 ARG ZENOH_COMMIT=2687c51352121f006e3a603ce07925a8ad0b295c
 ARG ZENOHC_COMMIT=05bd370343b5161ca9269649b9a914c9c2dc4170
@@ -11,6 +11,7 @@ ENV ZENOH_PQC_PREFIX=/opt/zenoh-pqc \
     RMW_IMPLEMENTATION=rmw_zenoh_cpp
 
 COPY patches/zenoh-rustls-aws-lc-pqc.patch /opt/patches/zenoh-rustls-aws-lc-pqc.patch
+COPY patches/rmw-zenoh-security-tools.patch /opt/patches/rmw-zenoh-security-tools.patch
 COPY scripts/build/build_zenoh_pqc.sh /opt/build_zenoh_pqc.sh
 
 RUN /opt/build_zenoh_pqc.sh \
@@ -19,10 +20,28 @@ RUN /opt/build_zenoh_pqc.sh \
         "${ZENOHCXX_COMMIT}" \
         "${RMW_ZENOH_COMMIT}" \
         "${ZENOH_PQC_PREFIX}" \
-        "${RMW_ZENOH_OVERLAY}" \
-    && rm -rf /opt/src /root/.cargo/git /root/.cargo/registry
+        "${RMW_ZENOH_OVERLAY}" core
 
-ENV CMAKE_PREFIX_PATH=/opt/zenoh-pqc:${CMAKE_PREFIX_PATH} \
-    LD_LIBRARY_PATH=/opt/zenoh-pqc/lib:${LD_LIBRARY_PATH}
+# Keep the expensive Rust/C build in a separate cacheable layer so failures in
+# the much smaller ROS overlay build do not force a complete rebuild.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nlohmann-json3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && /opt/build_zenoh_pqc.sh \
+        "${ZENOH_COMMIT}" \
+        "${ZENOHC_COMMIT}" \
+        "${ZENOHCXX_COMMIT}" \
+        "${RMW_ZENOH_COMMIT}" \
+        "${ZENOH_PQC_PREFIX}" \
+        "${RMW_ZENOH_OVERLAY}" rmw
+
+FROM ${BASE_IMAGE}
+
+ENV ZENOH_PQC_PREFIX=/opt/zenoh-pqc \
+    RMW_ZENOH_OVERLAY=/opt/rmw-zenoh-overlay \
+    RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+COPY --from=builder /opt/zenoh-pqc /opt/zenoh-pqc
+COPY --from=builder /opt/rmw-zenoh-overlay/install /opt/rmw-zenoh-overlay/install
 
 CMD ["bash"]

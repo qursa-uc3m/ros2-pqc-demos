@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /workspace/scripts/setup/setup_base_env.sh
+set +u
 source /opt/rmw-zenoh-overlay/install/setup.bash
+set -u
 
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export LD_LIBRARY_PATH="/opt/zenoh-pqc/lib:${LD_LIBRARY_PATH:-}"

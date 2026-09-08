@@ -1,0 +1,33 @@
+FROM ubuntu:26.04 AS builder
+
+ARG OPENSSL_TAG=openssl-4.0.1
+ENV DEBIAN_FRONTEND=noninteractive
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        git \
+        perl \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone --depth 1 --branch "${OPENSSL_TAG}" \
+        https://github.com/openssl/openssl.git /opt/openssl-src \
+    && cd /opt/openssl-src \
+    && ./Configure --prefix=/opt/openssl-4 --openssldir=/opt/openssl-4/ssl \
+        no-shared no-tests \
+    && make -j"$(nproc)" \
+    && make install_sw
+
+FROM ubuntu:26.04
+
+COPY --from=builder /opt/openssl-4 /opt/openssl-4
+COPY scripts/openssl/test_mldsa_cms.sh /usr/local/bin/test_mldsa_cms.sh
+
+ENV PATH=/opt/openssl-4/bin:${PATH} \
+    OPENSSL_MODULES=/opt/openssl-4/lib64/ossl-modules \
+    OPENSSL_CONF=/dev/null
+
+RUN chmod +x /usr/local/bin/test_mldsa_cms.sh
+
+CMD ["/usr/local/bin/test_mldsa_cms.sh"]

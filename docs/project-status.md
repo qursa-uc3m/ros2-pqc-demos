@@ -30,8 +30,12 @@ middleware-specific adapter is now an explicit architectural layer.
 This fork was rebased onto current upstream `rolling`. Its PQ implementation
 now uses OpenSSL's native FIPS 204 algorithm names (`ML-DSA-44`, `ML-DSA-65`,
 and `ML-DSA-87`) instead of hardcoded oqsprovider paths. It keeps the identity
-CA separate from the permissions CA because OpenSSL's current CMS signing path
-cannot use native ML-DSA.
+CA separate from the permissions CA because the OpenSSL 3.5 CMS implementation
+shipped in the Lyrical image cannot use native ML-DSA. OpenSSL 4.0 added the
+needed CMS support; the repository's isolated `make test-openssl4-cms`
+experiment verifies that capability. Moving the complete ROS image to OpenSSL
+4 and unifying the two CAs remains separate integration work because it changes
+the system cryptographic ABI and SROS2 artifact-generation contract.
 
 ## Zenoh, rustls, and mTLS status
 
@@ -97,6 +101,7 @@ authentication for Zenoh.
 - [OMG DDS PQC issue DDSSEC13-91](https://issues.omg.org/issues/spec/DDS-SECURITY/1.2)
 - [OpenSSL 3.5 release announcement](https://openssl-library.org/post/2025-04-08-openssl-35-final-release/)
 - [OpenSSL CMS and ML-DSA issue](https://github.com/openssl/openssl/issues/28279)
+- [OpenSSL CMS ML-DSA implementation issue](https://github.com/openssl/openssl/issues/28763)
 - [rustls hybrid-PQ defaults](https://docs.rs/rustls/latest/rustls/manual/_05_defaults/index.html)
 - [AWS-LC post-quantum algorithms](https://github.com/aws/aws-lc/blob/main/crypto/fipsmodule/PQREADME.md)
 - [Master's thesis repository record](https://dspace.umh.es/handle/11000/37017)

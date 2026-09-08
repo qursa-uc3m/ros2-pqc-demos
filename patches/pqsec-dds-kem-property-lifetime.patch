@@ -1,0 +1,68 @@
+diff --git a/adapters/cyclonedds/src/authentication.c b/adapters/cyclonedds/src/authentication.c
+--- a/adapters/cyclonedds/src/authentication.c
++++ b/adapters/cyclonedds/src/authentication.c
+@@ -2496,7 +2496,7 @@ DDS_Security_ValidationResult_t begin_handshake_reply(
+   uint32_t certDataSize;
+ 
+ #ifdef PQ_CRYPTO
+-  const DDS_Security_BinaryProperty_t *binary_property_kem_public;
++  const DDS_Security_BinaryProperty_t *binary_property_kem_public = NULL;
+   OSSL_LIB_CTX *oqs_ctx = get_oqs_context(impl);
+   uint32_t tokcount = impl->include_optional ? 12 : 10;
+ #else
+@@ -2582,17 +2582,18 @@ DDS_Security_ValidationResult_t begin_handshake_reply(
+ 
+ #ifdef PQ_CRYPTO
+   /* PQ KEM encapsulation using the remote party's public key */
+-  if (!handshake->kem_ct || !handshake->kem_ss) {
+-    /* Extract the KEM public key from the received request token */
+-    binary_property_kem_public = DDS_Security_DataHolder_find_binary_property(
+-        handshake_message_in, DDS_AUTHTOKEN_PROP_KEM_PUBLIC);
+-    if (binary_property_kem_public == NULL) {
+-      DBG_ERR("KEM public key not found in request token\n");
+-      DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
+-                                 DDS_SECURITY_VALIDATION_FAILED,
+-                                 "begin_handshake_reply: KEM public key not found");
+-      goto err_encap_kem_key;
+-    }
+-    DBG_CRYPTO("Found KEM public key from remote party\n");
++  /* The property is also copied into a retransmitted reply, so resolve it
++   * even when the handshake already owns an encapsulation result. */
++  binary_property_kem_public = DDS_Security_DataHolder_find_binary_property(
++      handshake_message_in, DDS_AUTHTOKEN_PROP_KEM_PUBLIC);
++  if (binary_property_kem_public == NULL) {
++    DBG_ERR("KEM public key not found in request token\n");
++    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
++                               DDS_SECURITY_VALIDATION_FAILED,
++                               "begin_handshake_reply: KEM public key not found");
++    goto err_encap_kem_key;
++  }
++  DBG_CRYPTO("Found KEM public key from remote party\n");
+ 
++  if (!handshake->kem_ct || !handshake->kem_ss) {
+     DBG_CRYPTO("Performing KEM encapsulation\n");
+     if (!pqsec_kem_encapsulate(
+             remoteIdent->kagreeAlgoKind, binary_property_kem_public->value._buffer,
+diff --git a/adapters/cyclonedds/src/CMakeLists.txt b/adapters/cyclonedds/src/CMakeLists.txt
+--- a/adapters/cyclonedds/src/CMakeLists.txt
++++ b/adapters/cyclonedds/src/CMakeLists.txt
+@@ -12,7 +12,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
+ set(CMAKE_C_EXTENSIONS OFF)
+ 
+ option(ENABLE_PQ_CRYPTO "Build the ML-KEM/ML-DSA authentication plugin" ON)
+-option(ENABLE_PQ_LOGGING "Enable the adapter's diagnostic logging" OFF)
++option(ENABLE_PQ_LOGGING "Enable the adapter's diagnostic logging" ON)
+ option(DEBUG "Enable legacy plugin diagnostics" OFF)
+ 
+ set(PQ_DEBUG_LEVEL "INFO" CACHE STRING "NONE|ERROR|WARN|INFO|TRACE|DATA")
+diff --git a/adapters/cyclonedds/src/debug.c b/adapters/cyclonedds/src/debug.c
+--- a/adapters/cyclonedds/src/debug.c
++++ b/adapters/cyclonedds/src/debug.c
+@@ -11,6 +11,7 @@
+ 
+ #include "debug.h"
+ #include <stdarg.h>
++#include <strings.h>
+ #include <time.h>
+ #include <unistd.h>
+ 

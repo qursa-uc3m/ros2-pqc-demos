@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite both the repository and the preferred
+  conference paper below.
+title: ROS 2 Post-Quantum Security Demos
+type: software
+authors:
+  - family-names: Blanco-Romero
+    given-names: Francisco Javier
+repository-code: https://github.com/qursa-uc3m/ros2-pqc-demos
+url: https://github.com/qursa-uc3m/ros2-pqc-demos
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: >-
+    PQSec-DDS: Integrating Post-Quantum Cryptography into DDS Security for
+    Robotic Applications
+  authors:
+    - family-names: Blanco-Romero
+      given-names: Francisco Javier
+    - family-names: Lorenzo
+      given-names: Víctor
+    - family-names: Almenares
+      given-names: Florina
+    - family-names: Díaz-Sánchez
+      given-names: Daniel
+    - family-names: Serrano Navarro
+      given-names: Arturo
+  year: 2024
+  start: 396
+  end: 403
+  url: https://idus.us.es/items/d9ea4ed3-83ad-43f4-bf85-5b922ce4d0f6

@@ -36,10 +36,28 @@ services:
     image: ros2-pqc-demos:zenoh-pqc
     command: sleep infinity
 
-  artifacts:
+  openssl4-cms:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.openssl4-cms
+      args:
+        OPENSSL_TAG: ${OPENSSL_TAG:-openssl-4.0.1}
+    image: ros2-pqc-demos:openssl4-cms
+
+  artifacts-dds:
     <<: *common
     image: ros2-pqc-demos:base
     environment:
+      ARTIFACT_MODE: dds
+      IDENTITY_ALGORITHM: ${IDENTITY_ALGORITHM:-ML-DSA-44}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    command: /workspace/scripts/certificates/generate_artifacts.sh
+
+  artifacts-zenoh:
+    <<: *common
+    image: ros2-pqc-demos:zenoh-pqc
+    environment:
+      ARTIFACT_MODE: zenoh
       IDENTITY_ALGORITHM: ${IDENTITY_ALGORITHM:-ML-DSA-44}
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
     command: /workspace/scripts/certificates/generate_artifacts.sh

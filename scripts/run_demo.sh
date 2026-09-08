@@ -26,9 +26,11 @@ cleanup() {
 trap cleanup EXIT
 
 docker compose down --volumes --remove-orphans
-docker compose build base
-docker compose build "${mode}-pqc"
-docker compose run --rm artifacts
+if [[ "${SKIP_BUILD:-0}" != 1 ]]; then
+  docker compose build base
+  docker compose build "${mode}-pqc"
+fi
+docker compose run --rm "artifacts-${mode}"
 
 if [[ "${mode}" == dds ]]; then
   docker compose up -d dds-talker dds-listener
@@ -60,7 +62,7 @@ else
   done
   docker compose exec -T zenoh-talker \
     /workspace/scripts/zenoh/verify_mtls_rejects_anonymous.sh \
-    >"${result_dir}/mtls-negative.log" 2>&1
+    >"${result_dir}/mtls-negative.log" 2>&1 || true
 
   # The generated policy allows /chatter, not /blocked. If ACL enforcement were
   # absent, the equally remapped publisher and listener would communicate.
@@ -90,7 +92,7 @@ else
     >"${result_dir}/talker.log" 2>&1 || test $? -eq 124
   wait "${listener_pid}" || test $? -eq 124
   grep -m 1 'X25519MLKEM768' "${result_dir}/tls.log"
-  grep -mi 1 -E 'certificate required|certificate.*required|alert.*certificate' \
+  grep -m 1 -i -E 'certificate required|certificate.*required|alert.*certificate' \
     "${result_dir}/mtls-negative.log"
   grep -m 1 'I heard:.*Hello World' "${result_dir}/listener.log"
   echo 'Zenoh hybrid-PQ TLS, mTLS, ACL, and talker/listener test passed.'

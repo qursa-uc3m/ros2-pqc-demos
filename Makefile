@@ -1,4 +1,4 @@
-.PHONY: build build-base build-dds build-zenoh artifacts test test-dds test-zenoh clean
+.PHONY: build build-base build-dds build-zenoh artifacts test test-dds test-zenoh test-openssl4-cms clean
 
 build: build-dds build-zenoh
 
@@ -11,8 +11,8 @@ build-dds: build-base
 build-zenoh: build-base
 	docker compose build zenoh-pqc
 
-artifacts: build-base
-	docker compose run --rm artifacts
+artifacts: build-zenoh
+	docker compose run --rm artifacts-zenoh
 
 test: test-dds test-zenoh
 
@@ -21,6 +21,10 @@ test-dds:
 
 test-zenoh:
 	./scripts/run_demo.sh zenoh
+
+test-openssl4-cms:
+	docker compose build openssl4-cms
+	docker compose run --rm openssl4-cms
 
 clean:
 	docker compose down --volumes --remove-orphans

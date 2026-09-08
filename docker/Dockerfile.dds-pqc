@@ -2,31 +2,46 @@ ARG BASE_IMAGE=ros2-pqc-demos:base
 FROM ${BASE_IMAGE}
 
 ARG PQSEC_DDS_COMMIT=abf753f87f35fda09b29549eff17aba655ab06b2
+ARG CYCLONEDDS_COMMIT=e54e991f75a3e67f8e628da3171122e36ea5b872
 ARG KEM_ALGORITHM=mlkem768
 ARG BUILD_TYPE=Release
 
 ENV PQSEC_DDS_COMMIT=${PQSEC_DDS_COMMIT} \
+    CYCLONEDDS_PQC_PREFIX=/opt/cyclonedds-pqc \
     KEM_ALGORITHM=${KEM_ALGORITHM} \
     RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     PQSEC_DDS_ROOT=/opt/pqsec-dds
 
-RUN if [[ ! -e "/opt/ros/${ROS_DISTRO}/lib/cmake/CycloneDDS" \
-          && -d "/opt/ros/${ROS_DISTRO}/share/CycloneDDS/cmake" ]]; then \
-      mkdir -p "/opt/ros/${ROS_DISTRO}/lib/cmake"; \
-      ln -s "/opt/ros/${ROS_DISTRO}/share/CycloneDDS/cmake" \
-        "/opt/ros/${ROS_DISTRO}/lib/cmake/CycloneDDS"; \
-    fi \
+COPY patches/pqsec-dds-kem-property-lifetime.patch /opt/patches/pqsec-dds-kem-property-lifetime.patch
+COPY patches/cyclonedds-pqsec-token-routing.patch /opt/patches/cyclonedds-pqsec-token-routing.patch
+
+RUN git clone https://github.com/eclipse-cyclonedds/cyclonedds.git /opt/cyclonedds-src \
+    && git -C /opt/cyclonedds-src checkout --detach "${CYCLONEDDS_COMMIT}" \
+    && git -C /opt/cyclonedds-src apply --check \
+        /opt/patches/cyclonedds-pqsec-token-routing.patch \
+    && git -C /opt/cyclonedds-src apply \
+        /opt/patches/cyclonedds-pqsec-token-routing.patch \
+    && cmake -S /opt/cyclonedds-src -B /opt/cyclonedds-build -G Ninja \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCMAKE_INSTALL_PREFIX="${CYCLONEDDS_PQC_PREFIX}" \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_TESTING=OFF \
+        -DENABLE_SECURITY=ON \
+    && cmake --build /opt/cyclonedds-build --parallel "$(nproc)" \
+    && cmake --install /opt/cyclonedds-build \
     && git clone https://github.com/qursa-uc3m/pqsec-dds.git "${PQSEC_DDS_ROOT}" \
     && git -C "${PQSEC_DDS_ROOT}" checkout --detach "${PQSEC_DDS_COMMIT}" \
+    && git -C "${PQSEC_DDS_ROOT}" apply --check \
+        /opt/patches/pqsec-dds-kem-property-lifetime.patch \
+    && git -C "${PQSEC_DDS_ROOT}" apply \
+        /opt/patches/pqsec-dds-kem-property-lifetime.patch \
     && source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && "${PQSEC_DDS_ROOT}/adapters/cyclonedds/scripts/build_plugin.sh" \
-        -c "/opt/ros/${ROS_DISTRO}" \
+        -c "${CYCLONEDDS_PQC_PREFIX}" \
         -s /usr \
         -t "${BUILD_TYPE}" \
         --kem "${KEM_ALGORITHM}" \
         -j "$(nproc)" \
     && test -f "${PQSEC_DDS_ROOT}/adapters/cyclonedds/build/libdds_pqsec.so"
-
-ENV LD_LIBRARY_PATH=/opt/pqsec-dds/adapters/cyclonedds/build:${LD_LIBRARY_PATH}
 
 CMD ["bash"]
